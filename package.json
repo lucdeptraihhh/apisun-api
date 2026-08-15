@@ -2,7 +2,7 @@
   "name": "apisun-api",
   "version": "1.0.0",
   "scripts": {
-    "start": "node \"apisun .js\""
+    "start": "node \"apisun.js\""
   },
   "dependencies": {
     "cors": "^2.8.5",
