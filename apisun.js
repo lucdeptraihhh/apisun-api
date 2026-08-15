@@ -1907,36 +1907,109 @@ const initialMessages = [
 let ws = null;
 let pingInterval = null;
 let reconnectTimeout = null;
+let handshakeTimeout = null;
+
+const RECONNECT_MIN = 1000;
+const RECONNECT_MAX = 10000;
+const HANDSHAKE_TIMEOUT = 10000;
+const PING_INTERVAL = 10000;
+let reconnectAttempt = 0;
+let shuttingDown = false;
+
+function clearWSTimers() {
+    clearInterval(pingInterval);
+    clearTimeout(reconnectTimeout);
+    clearTimeout(handshakeTimeout);
+    pingInterval = null;
+    reconnectTimeout = null;
+    handshakeTimeout = null;
+}
+
+function scheduleReconnect(reason = "") {
+    if (shuttingDown || reconnectTimeout) return;
+
+    const delay = Math.min(
+        RECONNECT_MIN * Math.pow(1.6, reconnectAttempt),
+        RECONNECT_MAX
+    );
+    reconnectAttempt++;
+
+    console.log(`[🔄] WebSocket reconnect sau ${delay}ms${reason ? ` | ${reason}` : ""}`);
+
+    reconnectTimeout = setTimeout(() => {
+        reconnectTimeout = null;
+        connectWebSocket();
+    }, delay);
+}
+
+function startHeartbeat(socket) {
+    clearInterval(pingInterval);
+
+    pingInterval = setInterval(() => {
+        if (socket !== ws) return;
+
+        if (socket.readyState === WebSocket.OPEN) {
+            try {
+                socket.ping();
+            } catch (e) {
+                console.error("[❌] Ping lỗi:", e.message);
+                try { socket.terminate(); } catch (_) {}
+            }
+        }
+    }, PING_INTERVAL);
+}
 
 function connectWebSocket() {
-    if (ws) {
-        ws.removeAllListeners();
-        ws.close();
+    if (shuttingDown) return;
+
+    if (ws && (
+        ws.readyState === WebSocket.OPEN ||
+        ws.readyState === WebSocket.CONNECTING
+    )) {
+        return;
     }
 
-    ws = new WebSocket(WEBSOCKET_URL, { headers: WS_HEADERS });
+    clearWSTimers();
 
-    ws.on('open', () => {
-        console.log('[✅] WebSocket connected.');
+    const socket = new WebSocket(WEBSOCKET_URL, {
+        headers: WS_HEADERS,
+        handshakeTimeout: HANDSHAKE_TIMEOUT
+    });
+
+    ws = socket;
+    console.log("[🔌] Đang kết nối WebSocket...");
+
+    handshakeTimeout = setTimeout(() => {
+        if (socket === ws && socket.readyState === WebSocket.CONNECTING) {
+            console.error("[⏱️] WebSocket handshake timeout");
+            try { socket.terminate(); } catch (_) {}
+        }
+    }, HANDSHAKE_TIMEOUT);
+
+    socket.on("open", () => {
+        if (socket !== ws) return;
+
+        clearTimeout(handshakeTimeout);
+        handshakeTimeout = null;
+        reconnectAttempt = 0;
+
+        console.log("[✅] WebSocket connected.");
+        startHeartbeat(socket);
+
         initialMessages.forEach((msg, i) => {
             setTimeout(() => {
-                if (ws.readyState === WebSocket.OPEN) {
-                    ws.send(JSON.stringify(msg));
+                if (socket === ws && socket.readyState === WebSocket.OPEN) {
+                    try {
+                        socket.send(JSON.stringify(msg));
+                    } catch (e) {
+                        console.error("[❌] Gửi init lỗi:", e.message);
+                    }
                 }
             }, i * 600);
         });
-
-        clearInterval(pingInterval);
-        pingInterval = setInterval(() => {
-            if (ws.readyState === WebSocket.OPEN) {
-                ws.ping();
-            }
-        }, PING_INTERVAL);
     });
 
-    ws.on('pong', () => {
-        // console.log('[📶] Ping OK.');
-    });
+    socket.on("pong", () => {});
 
     ws.on('message', (message) => {
         try {
@@ -2077,18 +2150,42 @@ function connectWebSocket() {
         }
     });
 
-    ws.on('close', (code, reason) => {
-        console.log(`[🔌] WebSocket closed. Code: ${code}, Reason: ${reason.toString()}`);
-        clearInterval(pingInterval);
-        clearTimeout(reconnectTimeout);
-        reconnectTimeout = setTimeout(connectWebSocket, RECONNECT_DELAY);
+
+    socket.on("close", (code, reason) => {
+        if (socket !== ws) return;
+
+        clearWSTimers();
+
+        const text = reason ? reason.toString() : "";
+        console.error(
+            `[🔌] WebSocket closed. Code: ${code}, Reason: ${text || "(không có)"}`
+        );
+
+        // Không reset currentSessionId khi socket rớt.
+        ws = null;
+        scheduleReconnect(`close ${code}`);
     });
 
-    ws.on('error', (err) => {
-        console.error('[❌] WebSocket error:', err.message);
-        ws.close();
+    socket.on("error", (err) => {
+        if (socket !== ws) return;
+
+        console.error("[❌] WebSocket error:", err.message);
+        try { socket.terminate(); } catch (_) {}
     });
 }
+
+function shutdownWebSocket() {
+    shuttingDown = true;
+    clearWSTimers();
+
+    if (ws) {
+        try { ws.close(); } catch (_) {}
+        ws = null;
+    }
+}
+
+process.on("SIGTERM", shutdownWebSocket);
+process.on("SIGINT", shutdownWebSocket);
 
 // ==================== EXPRESS API ====================
 app.get('/api/ditmemaysun', (req, res) => {
