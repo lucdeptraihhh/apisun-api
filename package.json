@@ -1,8 +1,9 @@
 {
-  "name": "apisun-api",
+  "name": "apisun-render",
   "version": "1.0.0",
+  "private": true,
   "scripts": {
-    "start": "node \"apisun.js\""
+    "start": "node apisun.js"
   },
   "dependencies": {
     "cors": "^2.8.5",

@@ -106,7 +106,7 @@ let apiResponseData = {
         "sai": 0,
         "ti_le": "0%"
     },
-    "id": "@luc.z2005"
+    "id": "@nhan161019"
 };
 
 // ==================== TAI XIU ANALYZER ====================
@@ -1881,7 +1881,7 @@ class TaiXiuAnalyzer {
 const analyzer = new TaiXiuAnalyzer();
 
 // ==================== WEBSOCKET ====================
-const WEBSOCKET_URL = "wss://websocket.azhkthg1.net/websocket?token=eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJhbW91bnQiOjAsInVzZXJuYW1lIjoiU0NfYXBpc3Vud2luMTIzIn0.hgrRbSV6vnBwJMg9ZFtbx3rRu9mX_hZMZ_m5gMNhkw0";
+const WEBSOCKET_URL = process.env.SUNWIN_WS_URL || "";
 const WS_HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
     "Origin": "https://play.sunwin.free"
@@ -1889,127 +1889,58 @@ const WS_HEADERS = {
 const RECONNECT_DELAY = 2500;
 const PING_INTERVAL = 15000;
 
-const initialMessages = [
-   [
-    1,
-    "MiniGame",
-    "SC_botuonglevi",
-    "123456hh",
-    {
-        "info": "{\"ipAddress\":\"2402:800:61a6:84fb:b0bb:b4c8:6860:b8f0\",\"wsToken\":\"eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJnZW5kZXIiOjAsImNhblZpZXdTdGF0IjpmYWxzZSwiZGlzcGxheU5hbWUiOiJsZXZpNGV2ZXIiLCJib3QiOjAsImlzTWVyY2hhbnQiOmZhbHNlLCJ2ZXJpZmllZEJhbmtBY2NvdW50IjpmYWxzZSwicGxheUV2ZW50TG9iYnkiOmZhbHNlLCJjdXN0b21lcklkIjozNTU2OTQzNzMsImFmZklkIjoiU3Vud2luIiwiYmFubmVkIjpmYWxzZSwiYnJhbmQiOiJzdW4ud2luIiwiZW1haWwiOiIiLCJ0aW1lc3RhbXAiOjE3ODMwNDU3OTI2NjIsImxvY2tHYW1lcyI6W10sImFtb3VudCI6MCwibG9ja0NoYXQiOmZhbHNlLCJwaG9uZVZlcmlmaWVkIjpmYWxzZSwiaXBBZGRyZXNzIjoiMjQwMjo4MDA6NjFhNjo4NGZiOmIwYmI6YjRjODo2ODYwOmI4ZjAiLCJtdXRlIjpmYWxzZSwiYXZhdGFyIjoiaHR0cHM6Ly9pbWFnZXMuc3dpbnNob3AubmV0L2ltYWdlcy9hdmF0YXIvYXZhdGFyXzE5LnBuZyIsInBsYXRmb3JtSWQiOjUsInVzZXJJZCI6IjFkZDM2YmIzLTMzNmEtNDI5Mi1iY2Q3LWFhYWZmOTIwMjRmNyIsImVtYWlsVmVyaWZpZWQiOm51bGwsInJlZ1RpbWUiOjE3ODI4OTAwOTMzNDgsInBob25lIjoiIiwiZGVwb3NpdCI6ZmFsc2UsInVzZXJuYW1lIjoiU0NfYm90dW9uZ2xldmkifQ.Wy2DyRueNW1rNVQKLo0D3ULegWaVcqlT87bSnNgJTWk\",\"locale\":\"vi\",\"userId\":\"1dd36bb3-336a-4292-bcd7-aaaff92024f7\",\"username\":\"SC_botuonglevi\",\"timestamp\":1783045792670,\"refreshToken\":\"347c7b8ff0f64e8f8637a964b8a7d645.b11bcc62e3e64ad6b0bcb7308ed58ba8\"}",
-        "signature": "04C361BC9E27B6FF639196B61E0F0B1B9BAA627F09077EA7617C952220CCDB36497C6D267BCD59E0F2B74278D6F7A46798C2552107B3ECBA6220262F9FDE1B23A7CD6F5EEB4EE730159243C2773CC4F2A33893723AACD74A5E236CDB14602EFC0A21A58B30E108A8DB05C5CD3697A3F613454BE48CB540AC9CA08056A88446FE",
-        }
-    ],
-    [6, "MiniGame", "taixiuPlugin", { cmd: 1005 }],
-    [6, "MiniGame", "lobbyPlugin", { cmd: 10001 }]
-];
+const DEFAULT_INITIAL_MESSAGES = [];
+let initialMessages = DEFAULT_INITIAL_MESSAGES;
+
+if (process.env.SUNWIN_INITIAL_MESSAGES) {
+    try {
+        const parsed = JSON.parse(process.env.SUNWIN_INITIAL_MESSAGES);
+        if (Array.isArray(parsed)) initialMessages = parsed;
+    } catch (e) {
+        console.error('[❌] SUNWIN_INITIAL_MESSAGES không phải JSON hợp lệ:', e.message);
+    }
+} else {
+    console.warn('[⚠️] Chưa cấu hình SUNWIN_INITIAL_MESSAGES. WebSocket sẽ không gửi message khởi tạo.');
+}
 
 let ws = null;
 let pingInterval = null;
 let reconnectTimeout = null;
-let handshakeTimeout = null;
-
-const RECONNECT_MIN = 1000;
-const RECONNECT_MAX = 10000;
-const HANDSHAKE_TIMEOUT = 10000;
-const PING_INTERVAL = 10000;
-let reconnectAttempt = 0;
-let shuttingDown = false;
-
-function clearWSTimers() {
-    clearInterval(pingInterval);
-    clearTimeout(reconnectTimeout);
-    clearTimeout(handshakeTimeout);
-    pingInterval = null;
-    reconnectTimeout = null;
-    handshakeTimeout = null;
-}
-
-function scheduleReconnect(reason = "") {
-    if (shuttingDown || reconnectTimeout) return;
-
-    const delay = Math.min(
-        RECONNECT_MIN * Math.pow(1.6, reconnectAttempt),
-        RECONNECT_MAX
-    );
-    reconnectAttempt++;
-
-    console.log(`[🔄] WebSocket reconnect sau ${delay}ms${reason ? ` | ${reason}` : ""}`);
-
-    reconnectTimeout = setTimeout(() => {
-        reconnectTimeout = null;
-        connectWebSocket();
-    }, delay);
-}
-
-function startHeartbeat(socket) {
-    clearInterval(pingInterval);
-
-    pingInterval = setInterval(() => {
-        if (socket !== ws) return;
-
-        if (socket.readyState === WebSocket.OPEN) {
-            try {
-                socket.ping();
-            } catch (e) {
-                console.error("[❌] Ping lỗi:", e.message);
-                try { socket.terminate(); } catch (_) {}
-            }
-        }
-    }, PING_INTERVAL);
-}
 
 function connectWebSocket() {
-    if (shuttingDown) return;
-
-    if (ws && (
-        ws.readyState === WebSocket.OPEN ||
-        ws.readyState === WebSocket.CONNECTING
-    )) {
+    if (!WEBSOCKET_URL) {
+        console.warn('[⚠️] Chưa cấu hình SUNWIN_WS_URL. Bỏ qua kết nối WebSocket.');
         return;
     }
 
-    clearWSTimers();
+    if (ws) {
+        ws.removeAllListeners();
+        ws.close();
+    }
 
-    const socket = new WebSocket(WEBSOCKET_URL, {
-        headers: WS_HEADERS,
-        handshakeTimeout: HANDSHAKE_TIMEOUT
-    });
+    ws = new WebSocket(WEBSOCKET_URL, { headers: WS_HEADERS });
 
-    ws = socket;
-    console.log("[🔌] Đang kết nối WebSocket...");
-
-    handshakeTimeout = setTimeout(() => {
-        if (socket === ws && socket.readyState === WebSocket.CONNECTING) {
-            console.error("[⏱️] WebSocket handshake timeout");
-            try { socket.terminate(); } catch (_) {}
-        }
-    }, HANDSHAKE_TIMEOUT);
-
-    socket.on("open", () => {
-        if (socket !== ws) return;
-
-        clearTimeout(handshakeTimeout);
-        handshakeTimeout = null;
-        reconnectAttempt = 0;
-
-        console.log("[✅] WebSocket connected.");
-        startHeartbeat(socket);
-
+    ws.on('open', () => {
+        console.log('[✅] WebSocket connected.');
         initialMessages.forEach((msg, i) => {
             setTimeout(() => {
-                if (socket === ws && socket.readyState === WebSocket.OPEN) {
-                    try {
-                        socket.send(JSON.stringify(msg));
-                    } catch (e) {
-                        console.error("[❌] Gửi init lỗi:", e.message);
-                    }
+                if (ws.readyState === WebSocket.OPEN) {
+                    ws.send(JSON.stringify(msg));
                 }
             }, i * 600);
         });
+
+        clearInterval(pingInterval);
+        pingInterval = setInterval(() => {
+            if (ws.readyState === WebSocket.OPEN) {
+                ws.ping();
+            }
+        }, PING_INTERVAL);
     });
 
-    socket.on("pong", () => {});
+    ws.on('pong', () => {
+        // console.log('[📶] Ping OK.');
+    });
 
     ws.on('message', (message) => {
         try {
@@ -2126,7 +2057,7 @@ function connectWebSocket() {
                         "sai": stats.wrong,
                         "ti_le": tiLe
                     },
-                    "id": "@luc.z2005"
+                    "id": "@nhan161019"
                 };
 
                 // Log
@@ -2150,45 +2081,21 @@ function connectWebSocket() {
         }
     });
 
-
-    socket.on("close", (code, reason) => {
-        if (socket !== ws) return;
-
-        clearWSTimers();
-
-        const text = reason ? reason.toString() : "";
-        console.error(
-            `[🔌] WebSocket closed. Code: ${code}, Reason: ${text || "(không có)"}`
-        );
-
-        // Không reset currentSessionId khi socket rớt.
-        ws = null;
-        scheduleReconnect(`close ${code}`);
+    ws.on('close', (code, reason) => {
+        console.log(`[🔌] WebSocket closed. Code: ${code}, Reason: ${reason.toString()}`);
+        clearInterval(pingInterval);
+        clearTimeout(reconnectTimeout);
+        reconnectTimeout = setTimeout(connectWebSocket, RECONNECT_DELAY);
     });
 
-    socket.on("error", (err) => {
-        if (socket !== ws) return;
-
-        console.error("[❌] WebSocket error:", err.message);
-        try { socket.terminate(); } catch (_) {}
+    ws.on('error', (err) => {
+        console.error('[❌] WebSocket error:', err.message);
+        ws.close();
     });
 }
-
-function shutdownWebSocket() {
-    shuttingDown = true;
-    clearWSTimers();
-
-    if (ws) {
-        try { ws.close(); } catch (_) {}
-        ws = null;
-    }
-}
-
-process.on("SIGTERM", shutdownWebSocket);
-process.on("SIGINT", shutdownWebSocket);
 
 // ==================== EXPRESS API ====================
-app.get('/api/ditmemaysun', (req, res) => {
+app.get('/taixiu', (req, res) => {
     res.json(apiResponseData);
 });
 
@@ -2224,11 +2131,20 @@ app.get('/api/models', (req, res) => {
     });
 });
 
+app.get('/health', (req, res) => {
+    res.json({
+        ok: true,
+        port: PORT,
+        websocket_configured: Boolean(WEBSOCKET_URL),
+        initial_messages_configured: initialMessages.length > 0
+    });
+});
+
 app.get('/', (req, res) => {
     res.json(apiResponseData);
 });
 
-app.listen(PORT, () => {
+app.listen(PORT, '0.0.0.0', () => {
     console.log(`[🌐] Server is running at http://localhost:${PORT}`);
     console.log(`[📁] History file: ${HISTORY_FILE}`);
     console.log(`[📁] Patterns file: ${PATTERNS_FILE}`);
